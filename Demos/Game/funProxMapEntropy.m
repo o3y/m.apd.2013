@@ -2,7 +2,7 @@
 % Find z on the simplex that minimizes
 %   <g, z> + sum_i z_i*log(z_i/x_i).
 function z = funProxMapEntropy(x, g)
-    g = g - min(g); % To avoid Inf after taking exp()
+    g = g - min(g);
     z = x .* exp(-g);
     s = sum(z);
     if s > 0

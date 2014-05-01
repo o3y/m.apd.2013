@@ -1,36 +1,34 @@
-% FUNG_NESTEROV   Solver for a class of saddle point problem
+% FUNG_NEST   Solver for a nonlinear game.
 %   This function implements the algorithm in the following paper:
 %       Nesterov, Y. (2005). Smooth minimization of non-smooth functions.
 %       Mathematical Programming, 103(1), 127-152.
 %   See Section 5.3 of the paper for the description of the algorithm.
 %
-%   [y,u]=funG_Nesterov(Q,K) solves the saddle point problem
+%   [y,u]=funG_NEST(Q,K) solves the saddle point problem
 %       min_y max_u .5<Qy,y> + <Ky,u>
 %   where y and u are on simplices.
 
-function [y, u, etc] = funG_Nesterov(Q, K, par)
+function [y, u, etc] = funG_NEST(Q, K, par)
 
-[yLength, xLength] = size(K);
-if nargin<3
-    par = [];
-end
-bSilent = check_par(par, 'bSilent', false);
-MaxIter = check_par(par, 'MaxIter', 100);
-fhDualityGap = check_par(par, 'fhDualityGap', []);
-bDualityGap = check_par(par, 'bDualityGap', false) & ~isempty(fhDualityGap);
-OutputInterval = check_par(par, 'OutputInterval', MaxIter);
-LipG = check_par(par, 'LipG', 1);
-LipK = check_par(par, 'LipK', 0);
+[m, n] = size(K);
+LipG = par.Qmax;
+LipK = par.Kmax;
 
-mu = 2*LipK / MaxIter * sqrt(log(xLength)/log(yLength));
+bVerbose = funCheckPar(par, 'bVerbose', true);
+MaxIter = funCheckPar(par, 'MaxIter', 100);
+[bPrimalObjectiveValue, fhPrimalObjectiveValue] = funCheckPair(par, ...
+    'bPrimalObjectiveValue', 'fhPrimalObjectiveValue');
+OutputInterval = funCheckPar(par, 'OutputInterval', MaxIter);
+
+mu = 2*LipK / MaxIter * sqrt(log(n)/log(m));
 Lmu = LipG + LipK^2/mu;
 
 % --------------------------------------
 % Initialization
 % --------------------------------------
 % Minimum of the distance generating functions
-xmin = ones(xLength, 1) / xLength;
-ymin = ones(yLength, 1) / yLength;
+xmin = ones(n, 1) / n;
+ymin = ones(m, 1) / m;
 
 etc = [];
 etc.CPUTime = nan(MaxIter, 1); 
@@ -77,11 +75,9 @@ for t = 1 :MaxIter
     % --------------------------------------
     % Calculate the duality gap
     % --------------------------------------
-    if bDualityGap && mod(t, OutputInterval) == 0
-        [etc.DualityGap(t), etc.PrimalObjectiveValue(t), etc.DualObjectiveValue(t)]...
-            = fhDualityGap(y, u);
-        silent_fprintf(bSilent, 't=%d, POBJ=%e, DOBJ=%e, DualityGap=%e\n', ...
-            t, etc.PrimalObjectiveValue(t), etc.DualObjectiveValue(t), etc.DualityGap(t));
+    if bPrimalObjectiveValue && mod(t, OutputInterval) == 0
+        etc.PrimalObjectiveValue(t) = fhPrimalObjectiveValue(y);
+        funPrintf(bVerbose, 't=%d, POBJ=%e\n', t, etc.PrimalObjectiveValue(t));
     end
 end
 

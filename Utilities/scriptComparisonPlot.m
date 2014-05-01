@@ -7,9 +7,11 @@ nResults = length(lAlg);
 
 if bCompareObjVal
     hObjVal = figure;
+    haObjVal = gca(hObjVal);
 end
 if bCompareRelErr
     hRelErr = figure;
+    haRelErr = gca(hRelErr);
 end
 if bCompareImage
     hImg = figure;
@@ -43,32 +45,28 @@ for i = 1:nResults
         title(sprintf('relerr=%g', funRelativeL2Error(tx, xTrue)));
     end
     if bCompareObjVal
-        figure(hObjVal);
-
         if strcmp(sXLabel, 'Iteration')
-            plot(tEtc.PrimalObjectiveValue, 'DisplayName', lTitle{i});        
+            plot(haObjVal, tEtc.PrimalObjectiveValue, 'DisplayName', lTitle{i});        
             xlabel('Iteration');
         elseif strcmp(sXLabel, 'CPUTime')
-            plot(tEtc.CPUTime, tEtc.PrimalObjectiveValue, 'DisplayName', lTitle{i});
+            plot(haObjVal, tEtc.CPUTime, tEtc.PrimalObjectiveValue, 'DisplayName', lTitle{i});
             xlabel('CPU Time');
         end
         
         ylabel('Objective Value');
-        hold all;
+        hold(haObjVal,  'all');
     end        
     if bCompareRelErr
-        figure(hRelErr);
-        
         if strcmp(sXLabel, 'Iteration')
-            plot(tEtc.RelativeError, 'DisplayName', lTitle{i});
+            plot(haRelErr, tEtc.RelativeError, 'DisplayName', lTitle{i});
             xlabel('Iteration');
         elseif strcmp(sXLabel, 'CPUTime')
-            plot(tEtc.CPUTime, tEtc.RelativeError, 'DisplayName', lTitle{i});
+            plot(haRelErr, tEtc.CPUTime, tEtc.RelativeError, 'DisplayName', lTitle{i});
             xlabel('CPU Time');
         end
         
         ylabel('Relative Error to Ground Truth');
-        hold all;
+        hold(haRelErr,  'all');
     end        
 end
 
@@ -82,19 +80,17 @@ if bShowLS
 end
 
 if bCompareObjVal
-    figure(hObjVal);
     if strcmp(sXLabel, 'Iteration')
-        plot(TrueEnergy * ones(MaxIter, 1), 'DisplayName', 'True');
+        plot(haObjVal, TrueEnergy * ones(MaxIter, 1), 'DisplayName', 'True');
     elseif strcmp(sXLabel, 'CPUTime')
-        plot([0, tEtc.CPUTime(end)], [TrueEnergy, TrueEnergy], 'DisplayName', 'True');
+        plot(haObjVal, [0, tEtc.CPUTime(end)], [TrueEnergy, TrueEnergy], 'DisplayName', 'True');
     end
-    ylim([TrueEnergy/2, (TrueEnergy+.1)*3]);
-    h = legend('show');
+    ylim(haObjVal, [TrueEnergy/2, (TrueEnergy+.1)*3]);
+    h = legend(haObjVal, 'show');
     set(h, 'Interpreter', 'none');
 end
 if bCompareRelErr
-    figure(hRelErr);
-    ylim([0, 1]);
-    h = legend('show');
+    ylim(haRelErr, [0, 1]);
+    h = legend(haRelErr, 'show');
     set(h, 'Interpreter', 'none');
 end

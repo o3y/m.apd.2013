@@ -1,6 +1,10 @@
-% Solver for min_x 1/2 G(x) + J2(x) + max_y <Kx, y> - J1(y).
-% Example: min 1/2G(x) + J(x) + F(Kx) can be transformed to the above
-% saddle point form with J1 = F^* and J2 = J.
+% FUNAPD   Accelerated primal-dual (APD) method for a class of saddle point
+% problems (SPP)
+%   [xagnew,yagnew] = funAPD(fhGradG,fhK,fhKt,par) solves the saddle point problem
+%       min_x max_y G(x) + <Kx, y> - J(y)
+%   where G is convex continuously differentiable and J is simple.
+%   For example, if F is a convex function, the problem
+%       min_x G(x) + F(Kx) can be transformed to SPP with J = F^*.
 % 
 % Required input:
 % fhGradG: Function handle for deterministic/stochastic gradient of G
@@ -15,19 +19,17 @@
 % LipK: Norm of K
 % xsize: Size of x
 % ysize: Size of y
-% fhProjx, fhProjy: Function handles for the projection operators at
-% x-iteration and y-iteration.
+% fhProjx, fhProjy: Function handles for solving the optimization problems
+% at x-iteration and y-iteration.
 % 
 % Optional Parameters (default values):
-% bSilent (true):
+% bVerbose (true):
 %     Flag for on-screen output. If it is false there is no output.
 % MaxIter (100):
 %     Maximum number of iterations.
 % bPrimalObjectiveValue (false), fhPrimalObjectiveValue (empty): 
 %     Flag and function handle for calculating the primal objective value
 %     function
-% bDualityGap (false), fhDualityGap (empty): 
-%     Flag and function handle for calculating the duality gap function
 % bPlot (false), fhPlot (funPlot): 
 %     Flag and function handle for plotting primal iterates x
 % xTrue (empty):
@@ -39,10 +41,6 @@
 %     l-infinity error.
 
 function [xagnew, yagnew, etc] = funAPD(fhGradG, fhK, fhKt, par)
-% Notes:
-% 1. The description of parameters needs to be finished.
-% 2. This is a uniform template.
-
 % --------------------------------------
 % Required parameters
 % --------------------------------------
@@ -55,27 +53,27 @@ LipK = par.LipK;
 % Optional parameters
 % --------------------------------------
 % Values
-MaxIter = check_par(par, 'MaxIter', 100);
-x0 = check_par(par, 'x0', zeros(xsize));
-y0 = check_par(par, 'y0', zeros(ysize));
-OutputInterval = check_par(par, 'OutputInterval', 1);
-DXYRatio = check_par(par, 'DXYRatio', 1);
-StepPolicy = check_par(par, 'StepsizePolicy', 1);
-alphaX = check_par(par, 'alphaX', 1);
-alphaY = check_par(par, 'alphaY', 1);
-sigma_xDX = check_par(par, 'sigma_xDX', 0);
-sigma_yDY = check_par(par, 'sigma_yDY', 0);
-sigmaD = check_par(par, 'sigmaD', 0);
-xTrue = check_par(par, 'xTrue', []);
+MaxIter = funCheckPar(par, 'MaxIter', 100);
+x0 = funCheckPar(par, 'x0', zeros(xsize));
+y0 = funCheckPar(par, 'y0', zeros(ysize));
+OutputInterval = funCheckPar(par, 'OutputInterval', 1);
+DXYRatio = funCheckPar(par, 'DXYRatio', 1);
+StepPolicy = funCheckPar(par, 'StepsizePolicy', 1);
+alphaX = funCheckPar(par, 'alphaX', 1);
+alphaY = funCheckPar(par, 'alphaY', 1);
+sigma_xDX = funCheckPar(par, 'sigma_xDX', 0);
+sigma_yDY = funCheckPar(par, 'sigma_yDY', 0);
+sigmaD = funCheckPar(par, 'sigmaD', 0);
+xTrue = funCheckPar(par, 'xTrue', []);
 % Flags & Function handles
-bSilent = check_par(par, 'bSilent', false);
-bErgodic = check_par(par, 'bErgodic', false) & (StepPolicy==0);
-fhRelativeError = check_par(par, 'fhRelativeError', @funRelativeL2Error);
-bRelativeError = check_par(par, 'bRelativeError', false) & ~isempty(fhRelativeError) & ~isempty(xTrue);
-fhPlot = check_par(par, 'fhPlot', @funPlot);
-bPlot = check_par(par, 'bPlot', false) & ~isempty(fhPlot);
-fhProjx = check_par(par, 'fhProjx', @(x, dx)(x - dx));
-fhProjy = check_par(par, 'fhProjy', @funProxMapEuclL21);
+bVerbose = funCheckPar(par, 'bVerbose', true);
+bErgodic = funCheckPar(par, 'bErgodic', false) & (StepPolicy==0);
+fhRelativeError = funCheckPar(par, 'fhRelativeError', @funRelativeL2Error);
+bRelativeError = funCheckPar(par, 'bRelativeError', false) & ~isempty(fhRelativeError) & ~isempty(xTrue);
+fhPlot = funCheckPar(par, 'fhPlot', @funPlot);
+bPlot = funCheckPar(par, 'bPlot', false) & ~isempty(fhPlot);
+fhProjx = funCheckPar(par, 'fhProjx', @(x, dx)(x - dx));
+fhProjy = funCheckPar(par, 'fhProjy', @funProxMapEuclL21);
 [bPrimalObjectiveValue, fhPrimalObjectiveValue] = funCheckPair(par, ...
     'bPrimalObjectiveValue', 'fhPrimalObjectiveValue');
 [bDualObjectiveValue, fhDualObjectiveValue] = funCheckPair(par, ...
@@ -90,9 +88,9 @@ switch StepPolicy
     case 0
         % Linearized primal dual without acceleration
         AuxiliaryStepsize = (tlist-1) ./ tlist;
-%         AuxiliaryStepsize = check_par(par, 'AuxiliaryStepsize', 1) * ones(MaxIter, 1);
-        PrimalStepsize = check_par(par, 'PrimalStepsize', 1/(LipG+LipK)) * ones(MaxIter, 1);
-        DualStepsize = check_par(par, 'DualStepsize', 1/LipK) * ones(MaxIter, 1);        
+%         AuxiliaryStepsize = funCheckPar(par, 'AuxiliaryStepsize', 1) * ones(MaxIter, 1);
+        PrimalStepsize = funCheckPar(par, 'PrimalStepsize', 1/(LipG+LipK)) * ones(MaxIter, 1);
+        DualStepsize = funCheckPar(par, 'DualStepsize', 1/LipK) * ones(MaxIter, 1);        
     case 1
         % Bounded X and Y
         if sigma_xDX
@@ -138,11 +136,12 @@ etc.DualObjectiveValue = nan(MaxIter, 1);
 etc.PrimalStepsize = PrimalStepsize;
 etc.DualStepsize = DualStepsize;
 etc.AuxiliaryStepsize = AuxiliaryStepsize;
+Kxnew = fhK(x0);
+Kx = Kxnew;
 xnew = x0;
 xagnew = x0;
 ynew = y0;
 yagnew = y0;
-x = x0;
 tStart = tic;
 
 
@@ -151,16 +150,17 @@ for t = 1:MaxIter
     % Main iteration
     % --------------------------------------
     % ------Auxiliary step
-    z = AuxiliaryStepsize(t) * (xnew - x) + xnew;
+    Kxnew = fhK(xnew);
+    Kz = (1+AuxiliaryStepsize(t))*Kxnew - AuxiliaryStepsize(t)*Kx;
 
     % ------Variable updating
     yag = yagnew;
     y = ynew;
     xag = xagnew;
     x = xnew;
+    Kx = Kxnew;
     
     % ------Dual iteration
-    Kz = fhK(z);
     ynew = fhProjy(y, DualStepsize(t) * Kz);
 
     % ------Middle step
@@ -211,7 +211,7 @@ for t = 1:MaxIter
         if bRelativeError
             etc.RelativeError(t) = fhRelativeError(xagnew, xTrue);
         end
-        silent_fprintf(bSilent, 't=%d,POBJ=%e,DOBJ=%e,DualityGap=%e,RelErr=%e\n', ...
+        funPrintf(bVerbose, 't=%d,POBJ=%e,DOBJ=%e,DualityGap=%e,RelErr=%e\n', ...
             t, etc.PrimalObjectiveValue(t), etc.DualObjectiveValue(t), etc.DualityGap(t), etc.RelativeError(t));
         % Plot
         if bPlot 

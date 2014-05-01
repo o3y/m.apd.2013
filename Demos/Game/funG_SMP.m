@@ -1,5 +1,5 @@
-% Solver for the penalized inaccurate matrix game
-%   min_x max_y .5*|Ax-b|^2 + <Kx, y>
+% Deterministic/Stochastic mirro-prox solver for the nonlinear game
+%   min_x max_y .5<Qx, x> + <Kx, y>
 % where x and y are on simplices, and Kx and K'y are calculated through
 % calls of deterministic/stochastic oracles
 
@@ -9,26 +9,46 @@
 % operators and smooth convex-concave saddle point problems. SIAM Journal
 % on Optimization, 15(1), 229-251.
 % 
-% [2] Juditsky, A., Nemirovskii, A. S., & Tauvel, C. (2008). Solving
-% variational inequalities with stochastic mirror-prox algorithm. arXiv
-% preprint arXiv:0809.0815.
-function [xav, yav, etc] = funG_PM(Q, fhK, fhKt, K, par)
+% [2] Juditsky, A., Nemirovskii, A. S., & Tauvel, C. (2011). Solving
+% variational inequalities with stochastic mirror-prox algorithm. Stochastic
+% Systems, 1, 17-58.
 
-[yLength, xLength] = size(K);
-if nargin<5
-    par = [];
-end
-bSilent = check_par(par, 'bSilent', false);
-fhDualityGap = check_par(par, 'fhDualityGap', []);
-bDualityGap = check_par(par, 'bDualityGap', false) & ~isempty(fhDualityGap);
-OutputInterval = check_par(par, 'OutputInterval', 1);
-bLineSearch = check_par(par, 'bLineSearch', 0);
-MaxIter = check_par(par, 'MaxIter', 100);
-TolGap = check_par(par, 'TolGap', 1e-3);
-M = check_par(par, 'M', 0);
-LipG = check_par(par, 'LipG', 0);
-LipK = check_par(par, 'LipK', 1);
-theta = check_par(par, 'theta', 5);
+function [xav, yav, etc] = funG_SMP(Q, fhK, fhKt, par)
+
+n = par.n;
+m = par.m;
+Qmax = par.Qmax;
+Kmax = par.Kmax;
+
+[bPrimalObjectiveValue, fhPrimalObjectiveValue] = funCheckPair(par, ...
+    'bPrimalObjectiveValue', 'fhPrimalObjectiveValue');
+MaxIter = funCheckPar(par, 'MaxIter', 100);
+bVerbose = funCheckPar(par, 'bVerbose', true);
+bLineSearch = funCheckPar(par, 'bLineSearch', 0) && bDeterministic;
+OutputInterval = funCheckPar(par, 'OutputInterval', MaxIter);
+nu = funCheckPar(par, 'nu', 1e-16);
+
+% Calculate constants for variational inequality. See "Mixed setups" in
+% Section 5 of [1] for details.
+alpha1 = 1 + nu;
+alpha2 = alpha1;
+Theta1 = (1+nu/n)*log(n/nu+1);
+Theta2 = (1+nu/m)*log(m/nu+1);
+L11 = Qmax;
+L12 = Kmax;
+M11 = L11 * Theta1;
+M12 = L12 * sqrt(Theta1*Theta2);
+sumM = M11 + 2*M12;
+sigma1 = (M11+M12) / sumM;
+sigma2 = M12 / sumM;
+gamma1 = sigma1 / Theta1;
+gamma2 = sigma2 / Theta2;
+mu1 = sqrt(gamma1 * alpha1);
+mu2 = sqrt(gamma2 * alpha2);
+L = L11*Theta1/alpha1 + 2*L12*sqrt(Theta1*Theta2/alpha1/alpha2);
+% Calculate standard deviation of stochastic oracle. See [2] for the
+% definition of M
+M = sqrt(4*(1/mu1^2 + 1/mu2^2) * Kmax^2);
 
 % --------------------------------------
 % Initialization
@@ -36,20 +56,13 @@ theta = check_par(par, 'theta', 5);
 etc = [];
 etc.CPUTime = nan(MaxIter, 1); 
 etc.PrimalObjectiveValue = nan(MaxIter, 1); 
-etc.DualObjectiveValue = nan(MaxIter, 1); 
-etc.DualityGap = nan(MaxIter, 1); 
-xnew = ones(xLength, 1) / xLength;
-ynew = ones(yLength, 1) / yLength;
-xav = zeros(xLength, 1);
-yav = zeros(yLength, 1);
-L = sqrt(2*log(xLength)*(LipG + LipK)^2 + 2*log(yLength)*LipK^2);
-if M ==0
-    Stepsize = 1/L/sqrt(2);
-else
-    Stepsize = min(1/(sqrt(3)*L), 2/M/sqrt(21*MaxIter)) * theta;
-end
-xStep0 = Stepsize * 2 * log(xLength);
-yStep0 = Stepsize * 2 * log(yLength);
+xnew = ones(n, 1) / n;
+ynew = ones(m, 1) / m;
+xav = zeros(n, 1);
+yav = zeros(m, 1);
+Stepsize = min(1/(sqrt(3)*L), 2/M/sqrt(21*MaxIter));
+xStep0 = Stepsize / gamma1;
+yStep0 = Stepsize / gamma2;
 xStep = xStep0;
 yStep = yStep0;
 xStepSum = 0;
@@ -64,7 +77,7 @@ for t = 1:MaxIter
     y = ynew;
     x = xnew;
 
-    % ------Line-search
+    % ------Deterministic line-search
     if bLineSearch
         counter = 0;
         criterion = inf;
@@ -76,13 +89,13 @@ for t = 1:MaxIter
             counter = counter + 1;
             xeg = xnew;
             yeg = ynew;
-            Fx = Q*xeg + fhKt(yeg);
-            Fy = -fhK(xeg);
+            Fx = Q*xeg + (yeg'*K)';
+            Fy = -(K*xeg);
             xnew = funProxMapEntropy(x, xStep * Fx);
             ynew = funProxMapEntropy(y, yStep * Fy);
-            criterion = (xStep/2/log(xLength)) * ((xeg - xnew)' * Fx) + (yStep/2/log(yLength)) * ((yeg - ynew)' * Fy) ...
-                - sum((xnew + 1e-16/xLength).*log((xnew + 1e-16/xLength)./(x + 1e-16/xLength)))/2/log(xLength)...
-                - sum((ynew + 1e-16/yLength).*log((ynew + 1e-16/yLength)./(y + 1e-16/yLength)))/2/log(yLength);
+            criterion = (xStep/2/log(n)) * ((xeg - xnew)' * Fx) + (yStep/2/log(m)) * ((yeg - ynew)' * Fy) ...
+                - sum((xnew + 1e-16/n).*log((xnew + 1e-16/n)./(x + 1e-16/n)))/2/log(n)...
+                - sum((ynew + 1e-16/m).*log((ynew + 1e-16/m)./(y + 1e-16/m)))/2/log(m);
         end
         xav = xav * xStepSum + xStep * xeg;
         xStepSum = xStepSum + xStep;
@@ -97,11 +110,11 @@ for t = 1:MaxIter
     else
         % ------Extragradient step
         xeg = funProxMapEntropy(x, xStep * (Q*x + fhKt(y)));
-        yeg = funProxMapEntropy(y, -yStep* fhK(x));
+        yeg = funProxMapEntropy(y, -yStep * fhK(x));
         
         % ------Gradient step
         Fx = Q*xeg + fhKt(yeg);
-        Fy = -fhK(xeg);
+        Fy = -fhK(x);
         xnew = funProxMapEntropy(x, xStep * Fx);
         ynew = funProxMapEntropy(y, yStep * Fy);
         
@@ -115,16 +128,11 @@ for t = 1:MaxIter
     % --------------------------------------
     etc.CPUTime(t) = toc(tStart);
     % --------------------------------------
-    % Calculate the duality gap
+    % Calculate the primal objective value
     % --------------------------------------
-    if bDualityGap && mod(t, OutputInterval) == 0
-        [etc.DualityGap(t), etc.PrimalObjectiveValue(t), etc.DualObjectiveValue(t)]...
-            = fhDualityGap(xav, yav);
-        silent_fprintf(bSilent, 't=%d, POBJ=%e, DOBJ=%e, DualityGap=%e\n', ...
-            t, etc.PrimalObjectiveValue(t), etc.DualObjectiveValue(t), etc.DualityGap(t));
-        if etc.DualityGap(t) < TolGap
-            break;
-        end
+    if bPrimalObjectiveValue && mod(t, OutputInterval) == 0
+        etc.PrimalObjectiveValue(t) = fhPrimalObjectiveValue(xav);
+        funPrintf(bVerbose, 't=%d, POBJ=%e\n', t, etc.PrimalObjectiveValue(t));
     end
     
 end
